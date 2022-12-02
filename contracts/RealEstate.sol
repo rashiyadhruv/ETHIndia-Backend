@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.10;
 
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -40,6 +40,19 @@ contract RealEstate is ERC1155, Ownable {
         offerId.decrement();
     }
 
+    function transfer(address _from, address _to, uint256 _tokenId, uint256 _amount) private {
+        _safeTransferFrom(_from, _to, _tokenId, _amount, "");
+    }
+
+    function setURI(string memory newuri) public onlyOwner {
+        _setURI(newuri);
+    }
+
+    modifier authorized(address _user) {
+        require(accountExists[_user] == true, "Create an account");
+        _;
+    }
+
     constructor() ERC1155("") {
         admin = msg.sender;
         incTokenId();
@@ -51,6 +64,8 @@ contract RealEstate is ERC1155, Ownable {
     event TokenTransferred(address indexed from, address indexed to, uint256 tokenId, uint256 quantity);
     event OfferCanceled( address indexed seller , uint256 offerId);
 
+    enum Status { Started, Completed, Canceled}
+
     struct Account {
         address walletAddress;
         string aadharCard;
@@ -60,16 +75,13 @@ contract RealEstate is ERC1155, Ownable {
         string expiry;
         string avatar;
     }
-    Account[] public accounts;
 
-    mapping(address => Token[]) public properties;
-
-    mapping(address => mapping(uint256 => OfferBuy)) private buyOffers;
-    mapping(address => mapping(uint256 => Offer)) private sellOffers;
-
-    // give id, get all sellOffers and buyOffers
-    mapping(address => OfferBuy[]) private buyOffersArr;
-    mapping(address => Offer[]) private sellOffersArr;
+    struct Token {
+        uint256 tokenId;
+        string metaData;
+        uint256 maxDivisions;
+        uint256 price;
+    }
 
     struct Offer {
         uint256 offerId;
@@ -81,7 +93,6 @@ contract RealEstate is ERC1155, Ownable {
         uint256[] areas;
         uint256[] prices;
     }
-    Offer[] private offers;
 
     struct OfferBuy {
         uint256 offerId;
@@ -93,79 +104,87 @@ contract RealEstate is ERC1155, Ownable {
         uint256 areas;
         uint256 prices;
     }
-    OfferBuy[] private offersBuy;
 
-    struct Token {
-        uint256 tokenId;
-        string metaData;
-        uint256 maxDivisions;
-        uint256 price;
-    }
+    Account[] private accounts;
     Token[] private tokens;
+    Offer[] private offers;
+    OfferBuy[] private offersBuy;
+    
+    mapping (address => Account) private accDetails; // 1
+    mapping (address => bool) private accountExists; // 2
 
-    // 1
-    mapping (uint256 => Token) private tokenInfo;
-    // 2
-    mapping (address => Account) private accDetails;
-    // 3
-    mapping (address => bool) private accountExists;
-    // 4
-    mapping (address => Token[]) private ownerTokenDetails;
-    // 5
-    mapping (address => mapping(uint256 => uint256)) private accTokenBalance;
+    mapping (address => mapping(uint256 => Token)) private accTokenDetails; // 3
+    mapping (address => Token[]) private ownerTokenDetails; // 4
+    mapping (uint256 => Token) private tokenInfo; // 5
 
+    mapping(uint256 => mapping(address => bool)) private offerAuth; // 6
+    mapping(address => OfferBuy[]) private buyOffersArr; // 7
+    mapping(address => mapping(uint256 => OfferBuy)) private buyOffers; // 8
+    mapping(address => Offer[]) private sellOffersArr; // 9
+    mapping(address => mapping(uint256 => Offer)) private sellOffers; // 10
+
+    // DONE
     function createAccount(address _wallet, string memory _aadharCard, string memory _cardNo, uint256 _cvv, string memory _name, string memory _expiry, string memory _avatar) public {
-        
-        accountExists[msg.sender] = true;
+        require(accountExists[msg.sender] == false, "Account already exists");
+
+        accountExists[msg.sender] = true;  //2
         
         Account memory newAccount = Account(_wallet, _aadharCard, _cardNo, _cvv, _name, _expiry, _avatar);
-        // 2
+        // 1
         accDetails[msg.sender] = newAccount;
         accounts.push(newAccount);
     }
 
-    function createToken(uint256 _maxSupply, uint256 _price, string memory _landDetails) public payable {
+    // DONE
+    function createToken(uint256 _maxDivisions, uint256 _price, string memory _landDetails) authorized(msg.sender) public payable {
         require(msg.value == MIN_FEE, "No transaction fee");
-        require(accountExists[msg.sender] == true, "Create an account");
         
         uint256 currId = currTokenId();
 
-        Token memory newToken = Token(currId, _landDetails, _maxSupply, _price);
+        Token memory newToken = Token(currId, _landDetails, _maxDivisions, _price);
         // added to array
         tokens.push(newToken);
-        // added to mapping, 1
-        tokenInfo[currId] = newToken;
-        // 4
-        ownerTokenDetails[msg.sender].push(newToken);
         
-        _mint(msg.sender, currId, _maxSupply, "");
+        tokenInfo[currId] = newToken; // 5
+        
+        ownerTokenDetails[msg.sender].push(newToken); // 4
 
-        // event NewTokenCreated(uint256 indexed tokenId, address owner, uint256 maxSupply, uint256 price, string landDetails);
-        emit NewTokenCreated(currId, msg.sender, _maxSupply, _price, _landDetails);
+        accTokenDetails[msg.sender][currId] = newToken; // 3
+        
+        _mint(msg.sender, currId, _maxDivisions, "");
+
+    emit NewTokenCreated(currId, msg.sender, _maxDivisions, _price, _landDetails);
 
         incTokenId();
     }
 
-    function transfer(address _from, address _to, uint256 _tokenId, uint256 _amount) private {
-        _safeTransferFrom(_from, _to, _tokenId, _amount, "");
-    }
-
-    enum Status { Started, Completed, Canceled}
-    Status private status;
-
-    mapping(uint256 => mapping(address => bool)) private offerAuth;
-
-    function offer(uint256 _tokenId, address[] memory _buyers, uint256 _quantity,uint256[] memory _areas, uint256[] memory _prices) public {
+    function offer(uint256 _tokenId, address[] memory _buyers, uint256 _quantity, uint256[] memory _areas, uint256[] memory _prices) public authorized(msg.sender) {
+        // balance of the account >= then number of token he wants to sell
         require(balanceOf(msg.sender, _tokenId) >= _quantity, "You do not own this asset");
 
         uint256 currOffer = currOfferId();
 
+        /*
+        mapping (address => Account) private accDetails; // 1
+        mapping (address => bool) private accountExists; // 2
+
+        mapping (address => mapping(uint256 => Token)) private accTokenDetails; // 3
+        mapping (address => Token[]) private ownerTokenDetails; // 4
+        mapping (uint256 => Token) private tokenInfo; // 5
+
+        mapping(uint256 => mapping(address => bool)) private offerAuth; // 6
+        mapping(address => OfferBuy[]) private buyOffersArr; // 7
+        mapping(address => mapping(uint256 => OfferBuy)) private buyOffers; // 8
+        mapping(address => Offer[]) private sellOffersArr; // 9
+        mapping(address => mapping(uint256 => Offer)) private sellOffers; // 10
+        */
+
         Offer memory newOffer = Offer(currOffer, msg.sender, _quantity, _tokenId, Status.Started, _buyers, _areas , _prices);
         
-        sellOffers[msg.sender][currOffer] = newOffer;
+        sellOffers[msg.sender][currOffer] = newOffer; // 10
         
         // adding to userSellOffers
-        sellOffersArr[msg.sender].push(newOffer);
+        sellOffersArr[msg.sender].push(newOffer);  // 9
 
         offers.push(newOffer);
         emit OfferCreated(currOffer, _tokenId, msg.sender, _quantity, _buyers , _areas , _prices);
@@ -185,9 +204,7 @@ contract RealEstate is ERC1155, Ownable {
 
             // authorize addresses in array
             offerAuth[currOffer][_buyers[i]] = true;
-
         }
-        // OfferCreated(uint256 indexed offerId, address creator, uint256 quantity);
 
         incOfferId();
     }
@@ -203,19 +220,9 @@ contract RealEstate is ERC1155, Ownable {
         // OfferCanceled(uint256 offerId);
         emit OfferCanceled(sellOffers[msg.sender][_offerId].owner, _offerId);
     }
-
-    function withdraw() payable public onlyOwner {
-        require(address(this).balance >= 0, "Balance is 0");
-
-        (bool sent,  ) = payable(admin).call{value: address(this).balance}("");
-        require(sent, "Failed to send Ether");
-    }
-
     
-    function buyToken(uint256 _offerId) public payable {
+    function buyToken(uint256 _offerId, string memory _metadata) public payable {
         OfferBuy memory currOffer = buyOffers[msg.sender][_offerId];
-        uint256 token = currOffer.tokenId;
-        Token memory currToken = tokenInfo[token];
         /*
         struct OfferBuy {
             uint256 offerId;
@@ -237,10 +244,17 @@ contract RealEstate is ERC1155, Ownable {
         // tokenId <= tokens.length else tokenId doest exist
         require(currOffer.tokenId <= tokens.length, "Token doesn't exist");
        
+      
+       // Add to the buyer (msg.sender)
+        accTokenDetails[msg.sender][currOffer.tokenId] = Token(currOffer.tokenId, _metadata, balanceOf(currOffer.owner, currOffer.tokenId), currOffer.prices);
+
+        // Subtract from the seller (OfferBuy.owner) = address
+        accTokenDetails[currOffer.owner][currOffer.tokenId].maxDivisions = balanceOf(msg.sender, currOffer.tokenId);
+        
+        transfer(currOffer.owner, msg.sender , currOffer.tokenId, currOffer.areas);
+        
         (bool sent, ) = payable(currOffer.owner).call{value: currOffer.prices}("");
         require(sent, "Failed to send Ether");
-
-        transfer(currOffer.owner, msg.sender , currOffer.tokenId, currOffer.areas);
 
         /*
         struct Token {
@@ -251,14 +265,18 @@ contract RealEstate is ERC1155, Ownable {
         }
         */
         
-        ownerTokenDetails[msg.sender].push(Token(currOffer.tokenId, currToken.metaData, currOffer.areas, currOffer.prices));
-
         // TokenTransferred(address indexed from, address indexed to, uint256 tokenId, uint256 quantity);
         emit TokenTransferred(currOffer.owner,msg.sender, currOffer.tokenId, currOffer.areas);
 
         // state changed to "Completed"
         currOffer.status = Status.Completed;
+    }
 
+    function withdraw() payable public onlyOwner {
+        require(address(this).balance >= 0, "Balance is 0");
+
+        (bool sent,  ) = payable(admin).call{value: address(this).balance}("");
+        require(sent, "Failed to send Ether");
     }
 
     function getBuyOffers(address _user) public view returns(OfferBuy[] memory){
@@ -271,6 +289,14 @@ contract RealEstate is ERC1155, Ownable {
 
     function getTokens() public view returns(Token[] memory) {
         return tokens;
+    }
+
+    function getAccounts() public view returns(Account[] memory) {
+        return accounts;
+    }
+
+    function getOffers() public view returns(Offer[] memory) {
+        return offers;
     }
 
     function getUserTokens(address _user) public view returns(Token[] memory) {
