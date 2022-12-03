@@ -74,10 +74,10 @@ contract RealEstate is ERC1155, Ownable {
         string name;
         string expiry;
         string avatar;
-        string[] nftTokenId;
     }
+    string[] private nftTokenIds;
 
-    mapping(address => string[]) private nftTokenIds;
+    mapping(address => string[]) private nftTokenIdsAcc;
 
     struct Token {
         uint256 tokenId;
@@ -131,10 +131,8 @@ contract RealEstate is ERC1155, Ownable {
         require(accountExists[msg.sender] == false, "Account already exists");
 
         accountExists[msg.sender] = true;  //2
-
-        string[] memory temp;
         
-        Account memory newAccount = Account(_wallet, _aadharCard, _cardNo, _cvv, _name, _expiry, _avatar, temp);
+        Account memory newAccount = Account(_wallet, _aadharCard, _cardNo, _cvv, _name, _expiry, _avatar);
         // 1
         accDetails[msg.sender] = newAccount;
         accounts.push(newAccount);
@@ -148,8 +146,8 @@ contract RealEstate is ERC1155, Ownable {
 
         Token memory newToken = Token(currId, _landDetails, _maxDivisions, _price);
 
-        accDetails[msg.sender].nftTokenId.push(_nftTokenId);
-        nftTokenIds[msg.sender].push(_nftTokenId); 
+        nftTokenIds.push(_nftTokenId);
+        nftTokenIdsAcc[msg.sender].push(_nftTokenId); 
 
         // added to array
         tokens.push(newToken);
@@ -314,6 +312,14 @@ contract RealEstate is ERC1155, Ownable {
 
     function getUserInfo(address _user) public view returns(Account memory) {
         return accDetails[_user];
+    }
+
+    function getAccountNFTIds(address _user) public view returns(string[] memory) {
+        return nftTokenIdsAcc[_user];
+    }
+    
+    function getAllNFTIds() public view returns(string[] memory) {
+        return nftTokenIds;
     }
 
     // returns the balance of the smart contract
