@@ -39,7 +39,32 @@ export const RealEstateProvider = ({ children }) => {
     // Reloading window
     window.location.reload();
   };
-  
+
+  const generateToken = async (type , price) => {
+    const web3Modal = new Web3Modal();
+    const connection = await web3Modal.connect();
+    const provider = new ethers.providers.Web3Provider(connection);
+    const signer = provider.getSigner();
+    const contract = fetchContract(signer);
+
+    const res = await revise.addNFT(
+        {
+          name: "qwqwqw33",
+          tokenId: "4",
+          description:
+            "This is not just a mere NFT but is The Earth itself and it has emotions !!! Voila !!! , It will feel sad when the emissions in the linked location increase in comparison to yesterday and happy when less compared to yesterday. Try to keep it happy ALWAYS",
+          image: "https://i.ibb.co/4dXWQhC/Frame-57.gif",
+        },
+        [{ condition: "Neutral" }, { location: "Gandhinagar" }],
+        collectionId
+      );
+
+      console.log(res.id);
+      
+      const tokencreated = await contract.createToken();
+
+}
+
   const createSale = async (url, formInputPrice, isReselling, id) => {
     const web3Modal = new Web3Modal();
     const connection = await web3Modal.connect();
@@ -69,7 +94,6 @@ export const RealEstateProvider = ({ children }) => {
     const contract = fetchContract(signer);
 
     const price = ethers.utils.parseUnits(nft.price.toString(), 'ether');
-
     const transaction = await contract.createMarketSale(nft.tokenId, { value: price });
 
     // setIsLoadingNFT(true);
@@ -78,8 +102,9 @@ export const RealEstateProvider = ({ children }) => {
   };
 
   return (
-    <RealEstateContext.Provider value={{ connectWallet, createSale, buyNFT, currentAccount, setCurrentAccount}}>
+    <RealEstateContext.Provider value={{ connectWallet, createSale, buyNFT, currentAccount, setCurrentAccount , generateToken}}>
       {children}
     </RealEstateContext.Provider>
   );
 };
+
