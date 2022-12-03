@@ -74,7 +74,10 @@ contract RealEstate is ERC1155, Ownable {
         string name;
         string expiry;
         string avatar;
+        string[] nftTokenId;
     }
+
+    mapping(address => string[]) private nftTokenIds;
 
     struct Token {
         uint256 tokenId;
@@ -128,20 +131,26 @@ contract RealEstate is ERC1155, Ownable {
         require(accountExists[msg.sender] == false, "Account already exists");
 
         accountExists[msg.sender] = true;  //2
+
+        string[] memory temp;
         
-        Account memory newAccount = Account(_wallet, _aadharCard, _cardNo, _cvv, _name, _expiry, _avatar);
+        Account memory newAccount = Account(_wallet, _aadharCard, _cardNo, _cvv, _name, _expiry, _avatar, temp);
         // 1
         accDetails[msg.sender] = newAccount;
         accounts.push(newAccount);
     }
 
     // DONE
-    function createToken(uint256 _maxDivisions, uint256 _price, string memory _landDetails) authorized(msg.sender) public payable {
+    function createToken(uint256 _maxDivisions, uint256 _price, string memory _landDetails, string memory _nftTokenId) authorized(msg.sender) public payable {
         require(msg.value == MIN_FEE, "No transaction fee");
         
         uint256 currId = currTokenId();
 
         Token memory newToken = Token(currId, _landDetails, _maxDivisions, _price);
+
+        accDetails[msg.sender].nftTokenId.push(_nftTokenId);
+        nftTokenIds[msg.sender].push(_nftTokenId); 
+
         // added to array
         tokens.push(newToken);
         
